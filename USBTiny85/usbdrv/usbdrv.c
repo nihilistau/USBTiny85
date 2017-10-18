@@ -5,12 +5,9 @@
  * Tabsize: 4
  * Copyright: (c) 2005 by OBJECTIVE DEVELOPMENT Software GmbH
  * License: GNU GPL v2 (see License.txt), GNU GPL v3 or proprietary (CommercialLicense.txt)
- * This Revision: $Id: usbdrv.c 763 2009-08-22 10:27:24Z cs $
  */
 
-#include "usbportability.h"
 #include "usbdrv.h"
-#include "oddebug.h"
 
 /*
 General Description:
@@ -45,7 +42,7 @@ uchar       usbCurrentDataToken;/* when we check data toggling to ignore duplica
 #endif
 
 /* USB status registers / not shared with asm code */
-uchar               *usbMsgPtr;     /* data to transmit next -- ROM or RAM address */
+usbMsgPtr_t         usbMsgPtr;      /* data to transmit next -- ROM or RAM address */
 static usbMsgLen_t  usbMsgLen = USB_NO_MSG; /* remaining number of bytes */
 static uchar        usbMsgFlags;    /* flag values see below */
 
@@ -77,7 +74,7 @@ PROGMEM const char usbDescriptorString0[] = { /* language descriptor */
 #if USB_CFG_DESCR_PROPS_STRING_VENDOR == 0 && USB_CFG_VENDOR_NAME_LEN
 #undef USB_CFG_DESCR_PROPS_STRING_VENDOR
 #define USB_CFG_DESCR_PROPS_STRING_VENDOR   sizeof(usbDescriptorStringVendor)
-PROGMEM int  usbDescriptorStringVendor[] = {
+PROGMEM const int  usbDescriptorStringVendor[] = {
     USB_STRING_DESCRIPTOR_HEADER(USB_CFG_VENDOR_NAME_LEN),
     USB_CFG_VENDOR_NAME
 };
@@ -95,7 +92,7 @@ PROGMEM const int  usbDescriptorStringDevice[] = {
 #if USB_CFG_DESCR_PROPS_STRING_SERIAL_NUMBER == 0 && USB_CFG_SERIAL_NUMBER_LEN
 #undef USB_CFG_DESCR_PROPS_STRING_SERIAL_NUMBER
 #define USB_CFG_DESCR_PROPS_STRING_SERIAL_NUMBER    sizeof(usbDescriptorStringSerialNumber)
-PROGMEM int usbDescriptorStringSerialNumber[] = {
+PROGMEM const int usbDescriptorStringSerialNumber[] = {
     USB_STRING_DESCRIPTOR_HEADER(USB_CFG_SERIAL_NUMBER_LEN),
     USB_CFG_SERIAL_NUMBER
 };
@@ -184,7 +181,7 @@ PROGMEM const char usbDescriptorConfiguration[] = {    /* USB configuration desc
 #if USB_CFG_HAVE_INTRIN_ENDPOINT3   /* endpoint descriptor for endpoint 3 */
     7,          /* sizeof(usbDescrEndpoint) */
     USBDESCR_ENDPOINT,  /* descriptor type = endpoint */
-    (char)0x83, /* IN endpoint number 1 */
+    (char)(0x80 | USB_CFG_EP3_NUMBER), /* IN endpoint number 3 */
     0x03,       /* attrib: Interrupt endpoint */
     8, 0,       /* maximum packet size */
     USB_CFG_INTR_POLL_INTERVAL, /* in ms */
@@ -239,7 +236,7 @@ char    i;
     }while(--i > 0);            /* loop control at the end is 2 bytes shorter than at beginning */
     usbCrc16Append(&txStatus->buffer[1], len);
     txStatus->len = len + 4;    /* len must be given including sync byte */
-    DBG2(0x21 + (((int)txStatus >> 3) & 3), txStatus->buffer, len + 3);
+
 }
 
 USB_PUBLIC void usbSetInterrupt(uchar *data, uchar len)
@@ -301,7 +298,7 @@ USB_PUBLIC void usbSetInterrupt3(uchar *data, uchar len)
             len = usbFunctionDescriptor(rq);        \
         }else{                                      \
             len = USB_PROP_LENGTH(cfgProp);         \
-            usbMsgPtr = (uchar *)(staticName);      \
+            usbMsgPtr = (usbMsgPtr_t)(staticName);  \
         }                                           \
     }
 
@@ -361,7 +358,8 @@ uchar       flags = USB_FLG_MSGPTR_IS_ROM;
  */
 static inline usbMsgLen_t usbDriverSetup(usbRequest_t *rq)
 {
-uchar   len  = 0, *dataPtr = usbTxBuf + 9;  /* there are 2 bytes free space at the end of the buffer */
+usbMsgLen_t len = 0;
+uchar   *dataPtr = usbTxBuf + 9;    /* there are 2 bytes free space at the end of the buffer */
 uchar   value = rq->wValue.bytes[0];
 #if USB_CFG_IMPLEMENT_HALT
 uchar   index = rq->wIndex.bytes[0];
@@ -408,7 +406,7 @@ uchar   index = rq->wIndex.bytes[0];
     SWITCH_DEFAULT                          /* 7=SET_DESCRIPTOR, 12=SYNC_FRAME */
         /* Should we add an optional hook here? */
     SWITCH_END
-    usbMsgPtr = dataPtr;
+    usbMsgPtr = (usbMsgPtr_t)dataPtr;
 skipMsgPtrAssignment:
     return len;
 }
@@ -428,7 +426,7 @@ usbRequest_t    *rq = (void *)data;
  * 0xe1 11100001 (USBPID_OUT: data phase of setup transfer)
  * 0...0x0f for OUT on endpoint X
  */
-    DBG2(0x10 + (usbRxToken & 0xf), data, len + 2); /* SETUP=1d, SETUP-DATA=11, OUTx=1x */
+
     USB_RX_USER_HOOK(data, len)
 #if USB_CFG_IMPLEMENT_FN_WRITEOUT
     if(usbRxToken < 0x10){  /* OUT to endpoint != 0: endpoint number in usbRxToken */
@@ -446,7 +444,6 @@ usbRequest_t    *rq = (void *)data;
         uchar type = rq->bmRequestType & USBRQ_TYPE_MASK;
         if(type != USBRQ_TYPE_STANDARD){    /* standard requests are handled by driver */
             replyLen = usbFunctionSetup(data);
-			// 2010.04.29 chrisc need this to work w/ usbtiny
         }else{
             replyLen = usbDriverSetup(rq);
         }
@@ -499,7 +496,8 @@ static uchar usbDeviceRead(uchar *data, uchar len)
         }else
 #endif
         {
-            uchar i = len, *r = usbMsgPtr;
+            uchar i = len;
+            usbMsgPtr_t r = usbMsgPtr;
             if(usbMsgFlags & USB_FLG_MSGPTR_IS_ROM){    /* ROM data */
                 do{
                     uchar c = USB_READ_FLASH(r);    /* assign to char size variable to enforce byte ops */
@@ -508,7 +506,8 @@ static uchar usbDeviceRead(uchar *data, uchar len)
                 }while(--i);
             }else{  /* RAM data */
                 do{
-                    *data++ = *r++;
+                    *data++ = *((uchar *)r);
+                    r++;
                 }while(--i);
             }
             usbMsgPtr = r;
@@ -543,7 +542,7 @@ uchar       len;
         usbMsgLen = USB_NO_MSG;
     }
     usbTxLen = len;
-    DBG2(0x20, usbTxBuf, len-1);
+
 }
 
 /* ------------------------------------------------------------------------- */
@@ -558,6 +557,8 @@ uchar           isReset = !notResetState;
         USB_RESET_HOOK(isReset);
         wasReset = isReset;
     }
+#else
+    notResetState = notResetState;  // avoid compiler warning
 #endif
 }
 
@@ -598,7 +599,7 @@ uchar   i;
     usbNewDeviceAddr = 0;
     usbDeviceAddr = 0;
     usbResetStall();
-    DBG1(0xff, 0, 0);
+
 isNotReset:
     usbHandleResetHook(i);
 }

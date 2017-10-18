@@ -1,2 +1,9 @@
 .metadata/
 RemoteSystemsTempFiles/
+*.eep
+*.elf
+*.hex
+*.map
+*.d
+*.o
+*.lss

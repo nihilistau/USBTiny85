@@ -7,14 +7,12 @@ ASM_SRCS += \
 ../usbdrv/usbdrvasm.asm 
 
 C_SRCS += \
-../usbdrv/oddebug.c \
 ../usbdrv/usbdrv.c 
 
 S_UPPER_SRCS += \
 ../usbdrv/usbdrvasm.S 
 
 OBJS += \
-./usbdrv/oddebug.o \
 ./usbdrv/usbdrv.o \
 ./usbdrv/usbdrvasm.o 
 
@@ -25,7 +23,6 @@ S_UPPER_DEPS += \
 ./usbdrv/usbdrvasm.d 
 
 C_DEPS += \
-./usbdrv/oddebug.d \
 ./usbdrv/usbdrv.d 
 
 
